@@ -1,0 +1,85 @@
+
+
+const int in = 8;
+const int out = 9;
+const int green = 10;
+const int orange = 11;
+const int red = 12;
+const int buzz = 13;
+
+void setup() {
+  Serial.begin(9600);  // Start serial communication
+  pinMode(in, INPUT);
+  pinMode(out, OUTPUT);
+  pinMode(green, OUTPUT);
+  pinMode(orange, OUTPUT);
+  pinMode(red, OUTPUT);
+  pinMode(buzz, OUTPUT);
+
+  digitalWrite(green, LOW);
+  digitalWrite(orange, LOW);
+  digitalWrite(red, LOW);
+  digitalWrite(buzz, LOW);
+  
+  delay(1000);  // Wait for 1 seconds before starting the monitoring
+}
+
+void loop() {
+  long dur;
+  long dist;
+  long per;
+  
+  digitalWrite(out, LOW);
+  delayMicroseconds(2);
+  digitalWrite(out, HIGH);
+  delayMicroseconds(2);
+  digitalWrite(out, LOW);
+  
+  dur = pulseIn(in, HIGH);
+  dist = (dur * 0.034) / 2;  // Calculate distance
+  per = map(dist, 30, 5, 0, 100); //per = map(dist, MAX_DIST, MIN_DIST, 0, 100);
+
+
+  if (per < 0) {
+    per = 0;
+  }
+  if (per > 100) {
+    per = 100;
+  }
+
+  Serial.println(String(per));  // Print the water level percentage to the serial monitor
+
+  // Red Alert for water level above 80%
+  if (per >= 40) {
+    digitalWrite(red, HIGH);
+    digitalWrite(green, LOW);
+    digitalWrite(orange, LOW);
+    digitalWrite(buzz, HIGH);
+    delay(1000);
+    digitalWrite(buzz, LOW);
+    delay(1000);
+    digitalWrite(buzz, HIGH);
+    delay(1000);
+    digitalWrite(buzz, LOW);
+    delay(1000);
+  }
+  
+  else if (per >= 20) {
+    digitalWrite(orange, HIGH);
+    digitalWrite(red, LOW);
+    digitalWrite(green, LOW);
+    digitalWrite(buzz, HIGH);
+    delay(1000);
+    digitalWrite(buzz, LOW);
+    delay(1000);
+  }
+  
+  else {
+    digitalWrite(green, HIGH);
+    digitalWrite(orange, LOW);
+    digitalWrite(red, LOW);
+    digitalWrite(buzz, LOW);
+  }
+
+  delay(3000);  
+}
