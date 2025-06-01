@@ -1,0 +1,155 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <RTClib.h>
+#include <HCSR04.h>
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
+
+// === Hardware Configuration ===
+#define TRIGGER_PIN 9
+#define ECHO_PIN 10
+#define DF_RX 3   // DFPlayer TX to Arduino Pin 3
+#define DF_TX 2   // DFPlayer RX to Arduino Pin 2
+
+// === Constants ===
+const float sensorHeight = 80.0;  // Sensor height from tank bottom (cm)
+const float LOW_LEVEL = 50.0;      // 🔵 Low Level: "Caution, water level rising." (track 001)
+const float MEDIUM_LEVEL = 60.0;   // 🟠 Medium Level: "Warning, water is at medium level." (track 002)
+const float HIGH_LEVEL = 70.0;     // 🔴 High Level: "Danger! Evacuate immediately!" (track 003)
+
+// === Libraries Initialization ===
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+RTC_DS3231 rtc;
+UltraSonicDistanceSensor distanceSensor(TRIGGER_PIN, ECHO_PIN);
+SoftwareSerial mySerial(DF_RX, DF_TX);
+DFRobotDFPlayerMini myDFPlayer;
+
+// === Variables ===
+double distance_cm = 0.0;
+double depth = 0.0;
+int lastLevel = -1;
+
+void updateDisplay() {
+  const char dayNames[7][4] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+  const char monthNames[13][4] = {" ", "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+
+  DateTime now = rtc.now();
+
+  int day = now.day();
+  int month = now.month();
+  int year = now.year();
+  int dow = now.dayOfTheWeek();
+
+  int hh = now.twelveHour();
+  int mm = now.minute();
+  int ss = now.second();
+  bool isPM = now.isPM();
+
+  distance_cm = distanceSensor.measureDistanceCm();
+
+  if (distance_cm > 2 && distance_cm <= sensorHeight) {
+    depth = sensorHeight - distance_cm;
+  } else {
+    depth = -1;
+  }
+
+  // Row 0: Date
+  lcd.setCursor(0, 0);
+  lcd.print("                    ");  // Clear row
+  lcd.setCursor(0, 0);
+  if (day < 10) lcd.print("0");
+  lcd.print(day); lcd.print("-");
+  lcd.print(monthNames[month]); lcd.print("-");
+  lcd.print(year); lcd.print(" ");
+  lcd.print(dayNames[dow]);
+
+  // Row 1: Time
+  lcd.setCursor(0, 1);
+  lcd.print("                    ");
+  lcd.setCursor(0, 1);
+  if (hh < 10) lcd.print("0");
+  lcd.print(hh); lcd.print(":");
+  if (mm < 10) lcd.print("0");
+  lcd.print(mm); lcd.print(":");
+  if (ss < 10) lcd.print("0");
+  lcd.print(ss); lcd.print(isPM ? " PM" : " AM");
+
+  // Row 2: Depth
+  lcd.setCursor(0, 2);
+  lcd.print("                    ");
+  lcd.setCursor(0, 2);
+  if (depth >= 0) {
+    lcd.print("Depth: ");
+    lcd.print(depth, 1);
+    lcd.print(" cm");
+  } else {
+    lcd.print("No distance detected");
+  }
+
+// Row 3: Alert + Audio (Range-based logic)
+lcd.setCursor(0, 3);
+if (depth >= 0) {
+  if (depth >= HIGH_LEVEL) {
+    lcd.print("Danger! Evacuate!");
+    myDFPlayer.play(1);  // Always repeat danger alert
+    lastLevel = 3;
+  } else if (depth >= MEDIUM_LEVEL && depth < HIGH_LEVEL && lastLevel != 2) {
+    lcd.print("Warning! Medium lvl");
+    myDFPlayer.play(2);
+    lastLevel = 2;
+  } else if (depth >= LOW_LEVEL && depth < MEDIUM_LEVEL && lastLevel != 1) {
+    lcd.print("Caution: Rising water");
+    myDFPlayer.play(3);
+    lastLevel = 1;
+  } else if (depth < LOW_LEVEL && lastLevel != 0) {
+    lcd.print("Water is stable");
+    lastLevel = 0;
+  } else {
+    switch (lastLevel) {
+      case 3: lcd.print("Danger! Evacuate!"); break;
+      case 2: lcd.print("Warning! Medium lvl"); break;
+      case 1: lcd.print("Caution: Rising water"); break;
+      case 0: lcd.print("Water is stable"); break;
+      default: lcd.print("Monitoring..."); break;
+    }
+  }
+}
+
+  else {
+    lcd.print("Sensor Error!");
+    lastLevel = -1;
+  }
+
+  // Optional debug
+  Serial.print("Depth: "); Serial.print(depth);
+  Serial.print(" | Level: "); Serial.println(lastLevel);
+}
+
+
+void setup() {
+  Serial.begin(9600);
+  lcd.init();
+  lcd.backlight();
+
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
+  // Set RTC time to June 1, 2025 at 12:30:00 PM
+  rtc.adjust(DateTime(2025, 6, 1, 12, 30, 0));  // Upload once, then comment out this line
+
+  mySerial.begin(9600);
+  if (!myDFPlayer.begin(mySerial)) {
+    Serial.println("DFPlayer not found or SD missing.");
+    while (true);
+  }
+  myDFPlayer.volume(30);  // Max volume
+  myDFPlayer.EQ(DFPLAYER_EQ_NORMAL);
+}
+
+void loop() {
+  updateDisplay();
+  delay(2000);  // Refresh every 2 seconds
+}
